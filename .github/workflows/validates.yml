@@ -1,0 +1,119 @@
+name: Validate Code
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  terraform:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+
+    - name: Terraform Format
+      id: fmt
+      run: |
+        cd terraform
+        terraform fmt -check -recursive
+      continue-on-error: true
+
+    - name: Terraform Init
+      run: |
+        cd terraform
+        terraform init -backend=false
+
+    - name: Terraform Validate
+      run: |
+        cd terraform
+        terraform validate
+
+    - name: Terraform Security Scan
+      uses: tfsec/tfsec-sarif-action@master
+      with:
+        sarif_file: tfsec.sarif
+
+    - name: Upload TFSec SARIF file
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: tfsec.sarif
+
+  ansible:
+    name: Ansible Validation
+    runs-on: ubuntu-latest
+    needs: terraform
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Ansible and dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible ansible-lint yamllint
+
+    - name: Ansible Syntax Check
+      run: |
+        cd ansible
+        ansible-playbook --syntax-check k3s-install.yml
+        ansible-playbook --syntax-check system-utils-install.yml
+        ansible-playbook --syntax-check argocd-install.yml
+
+    - name: Ansible Lint
+      run: |
+        cd ansible
+        ansible-lint k3s-install.yml
+        ansible-lint system-utils-install.yml
+        ansible-lint argocd-install.yml
+
+  yaml:
+    name: YAML Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install yamllint
+      run: pip install yamllint
+
+    - name: YAML Lint
+      run: |
+        yamllint -c .yamllint.yml .
+      continue-on-error: true
+
+  shell:
+    name: Shell Script Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: ShellCheck
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: '.'
+        check_together: true
