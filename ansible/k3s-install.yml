@@ -145,3 +145,4 @@
           - 'Workers: {{ groups[''workers''] | map(''extract'', hostvars, ''ansible_host'') | list }}'
           - 'Kubeconfig saved to: {{ playbook_dir }}/../kubeconfig'
           - 'Use: export KUBECONFIG={{ playbook_dir }}/../kubeconfig'
+          
