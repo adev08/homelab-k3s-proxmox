@@ -1,0 +1,83 @@
+---
+- name: Install ArgoCD via Helm
+  hosts: control_plane
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - python3-pip
+          - curl
+        state: present
+        update_cache: true
+
+    - name: Install Helm
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Add ArgoCD Helm repository
+      ansible.builtin.shell:
+        cmd: helm repo add argo https://argoproj.github.io/argo-helm
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Update Helm repositories
+      ansible.builtin.shell:
+        cmd: helm repo update
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Install ArgoCD using Helm
+      ansible.builtin.shell:
+        cmd: |
+          KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade --install argocd argo/argo-cd \
+            --namespace argocd \
+            --create-namespace \
+            --set server.service.type=LoadBalancer
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Wait for ArgoCD pods to be ready
+      ansible.builtin.shell:
+        cmd: |
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd --timeout=300s
+      args:
+        executable: /bin/bash
+      register: wait_result
+      until: wait_result.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Get ArgoCD admin password
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+      args:
+        executable: /bin/bash
+      register: argocd_password
+      changed_when: false
+
+    - name: Display ArgoCD access information
+      ansible.builtin.debug:
+        msg: |
+          ArgoCD has been installed successfully!
+
+          Access ArgoCD UI:
+          - URL: http://{{ ansible_host }}:8080 (if using port-forward)
+          - Username: admin
+          - Password: {{ argocd_password.stdout }}
+
+          To access via port-forward:
+          kubectl port-forward svc/argocd-server -n argocd 8080:80

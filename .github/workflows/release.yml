@@ -1,0 +1,84 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+
+    - name: Create Release Archive
+      run: |
+        # Create a clean archive without .git and other unnecessary files
+        VERSION=${GITHUB_REF#refs/tags/}
+        ARCHIVE_NAME="k3s-proxmox-terraform-${VERSION}"
+        
+        # Create archive first to avoid file modification conflicts
+        tar -czf "${ARCHIVE_NAME}.tar.gz" \
+          --exclude='.git' \
+          --exclude='.github' \
+          --exclude='.terraform' \
+          --exclude='terraform.tfstate*' \
+          --exclude='*.log' \
+          --exclude='kubeconfig' \
+          --exclude='.DS_Store' \
+          --exclude='*.retry' \
+          --exclude='*.tar.gz' \
+          --exclude='*.tar.gz.sha256' \
+          --exclude='*.tar.gz.md5' \
+          .
+        
+        # Create checksums
+        sha256sum "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
+        md5sum "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.md5"
+        
+        # List created files
+        ls -la "${ARCHIVE_NAME}"*
+
+    - name: Validate Terraform
+      run: |
+        cd terraform
+        terraform init -backend=false
+        terraform validate
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          k3s-proxmox-terraform-*.tar.gz
+          k3s-proxmox-terraform-*.tar.gz.sha256
+          k3s-proxmox-terraform-*.tar.gz.md5
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Release Assets
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        ARCHIVE_NAME="k3s-proxmox-terraform-${VERSION}"
+        
+        echo "Release assets created:"
+        echo "- ${ARCHIVE_NAME}.tar.gz"
+        echo "- ${ARCHIVE_NAME}.tar.gz.sha256"
+        echo "- ${ARCHIVE_NAME}.tar.gz.md5"
+        
+        echo "To verify the download:"
+        echo "sha256sum -c ${ARCHIVE_NAME}.tar.gz.sha256"
